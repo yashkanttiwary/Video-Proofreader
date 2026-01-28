@@ -1,6 +1,5 @@
-
 import React from 'react';
-import { Loader2, Zap, FileVideo, CheckCircle2, BrainCircuit, HardDrive, Video, CloudUpload, Cpu } from 'lucide-react';
+import { Loader2, Zap, FileVideo, CheckCircle2, BrainCircuit, HardDrive, Video, UploadCloud, Cpu } from 'lucide-react';
 import { ProcessedVideoData } from '../types';
 
 interface AnalysisProgressProps {
@@ -55,7 +54,7 @@ export const AnalysisProgress: React.FC<AnalysisProgressProps> = ({
               </p>
               {isReady && !isAiProcessing && (
                 <div className="mt-3 grid grid-cols-2 gap-3">
-                   <StatBadge icon={<CloudUpload size={14}/>} label="Strategy" value="File API" />
+                   <StatBadge icon={<UploadCloud size={14}/>} label="Strategy" value="File API" />
                    <StatBadge icon={<Video size={14}/>} label="Mode" value="High Res" />
                 </div>
               )}
