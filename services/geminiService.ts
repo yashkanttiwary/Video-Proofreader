@@ -191,6 +191,7 @@ export const runGeminiAnalysis = async (
   platform: string,
   durationStr: string,
   apiKey: string,
+  channelUrl: string, // Added Channel URL context
   onStatusUpdate?: (status: string) => void
 ): Promise<AnalysisResult> => {
   if (!apiKey) throw new Error("API Key missing");
@@ -228,6 +229,7 @@ export const runGeminiAnalysis = async (
       CONTEXT: CHANNEL KNOWLEDGE BASE (${CHANNEL_CONTEXT.channelName})
       - Visual Style: ${CHANNEL_CONTEXT.brandGuidelines.visuals}.
       - Common Pitfalls: ${CHANNEL_CONTEXT.topPerformingPatterns.commonPitfalls.join(", ")}.
+      ${channelUrl ? `- Target Channel URL: ${channelUrl}` : ''}
     `;
 
     // Prompt optimized for SEGMENTS or FULL video
@@ -241,7 +243,7 @@ export const runGeminiAnalysis = async (
       ${ragContext}
       Target Platform: ${platform}.
       Video Title: "${title}"
-
+      
       ROLE: You are the Ultimate Video QA System for Physics Wallah.
       TASK: Perform a FRAME-BY-FRAME analysis.
       

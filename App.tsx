@@ -4,6 +4,7 @@ import { runGeminiAnalysis, uploadFileToGemini } from './services/geminiService'
 import { AnalysisProgress } from './components/AnalysisProgress';
 import { IssueCard, MarketingPanel } from './components/DashboardComponents';
 import { ExportModal } from './components/ExportModal';
+import { SettingsModal } from './components/SettingsModal';
 import { VideoWorkspace, VideoWorkspaceRef } from './components/VideoWorkspace';
 import { LoginPage } from './components/LoginPage';
 import { 
@@ -19,11 +20,12 @@ import {
   CheckCircle2,
   X,
   LogOut,
-  User
+  User,
+  Link as LinkIcon
 } from 'lucide-react';
 
 // --- Header ---
-const Header = ({ userName, onLogout }: { userName: string, onLogout: () => void }) => {
+const Header = ({ userName, onLogout, onOpenSettings }: { userName: string, onLogout: () => void, onOpenSettings: () => void }) => {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
 
   return (
@@ -34,7 +36,13 @@ const Header = ({ userName, onLogout }: { userName: string, onLogout: () => void
           <span className="font-heading text-lg font-bold text-pw-blue">ProofVision</span>
         </div>
         <div className="flex items-center space-x-4">
-          <button className="text-gray-500 hover:text-pw-orange" aria-label="Settings"><Settings size={20} /></button>
+          <button 
+            onClick={onOpenSettings}
+            className="text-gray-500 hover:text-pw-orange transition-colors" 
+            aria-label="Settings"
+          >
+            <Settings size={20} />
+          </button>
           
           <div className="relative">
             <button 
@@ -56,6 +64,13 @@ const Header = ({ userName, onLogout }: { userName: string, onLogout: () => void
                    <p className="text-sm font-bold text-gray-900 truncate">{userName}</p>
                 </div>
                 <button
+                  onClick={onOpenSettings}
+                  className="flex w-full items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 text-left"
+                >
+                  <Settings size={16} className="mr-2" />
+                  Settings
+                </button>
+                <button
                   onClick={onLogout}
                   className="flex w-full items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 text-left"
                 >
@@ -72,11 +87,28 @@ const Header = ({ userName, onLogout }: { userName: string, onLogout: () => void
 };
 
 // --- Upload Step ---
-const UploadStep = ({ onUpload }: { onUpload: (file: File, platform: string, title?: string) => void }) => {
+const UploadStep = ({ onUpload }: { onUpload: (file: File, platform: string, title?: string, channelUrl?: string) => void }) => {
   const [dragActive, setDragActive] = useState(false);
   const [platform, setPlatform] = useState('YouTube');
   const [title, setTitle] = useState('');
+  const [channelUrl, setChannelUrl] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Load saved channel URL on mount or when platform changes
+  useEffect(() => {
+    const isInsta = platform.includes('Instagram');
+    const key = isInsta ? 'pw_default_instagram_url' : 'pw_default_youtube_url';
+    const savedUrl = localStorage.getItem(key);
+    if (savedUrl) setChannelUrl(savedUrl);
+  }, [platform]);
+
+  // Save channel URL to local storage when changed
+  const handleUrlChange = (val: string) => {
+    setChannelUrl(val);
+    const isInsta = platform.includes('Instagram');
+    const key = isInsta ? 'pw_default_instagram_url' : 'pw_default_youtube_url';
+    localStorage.setItem(key, val);
+  };
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -95,7 +127,7 @@ const UploadStep = ({ onUpload }: { onUpload: (file: File, platform: string, tit
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const file = e.dataTransfer.files[0];
       const autoTitle = file.name.replace(/\.[^/.]+$/, "").replace(/_/g, " ");
-      onUpload(file, platform, title || autoTitle);
+      onUpload(file, platform, title || autoTitle, channelUrl);
     }
   };
 
@@ -104,7 +136,7 @@ const UploadStep = ({ onUpload }: { onUpload: (file: File, platform: string, tit
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       const autoTitle = file.name.replace(/\.[^/.]+$/, "").replace(/_/g, " ");
-      onUpload(file, platform, title || autoTitle);
+      onUpload(file, platform, title || autoTitle, channelUrl);
     }
   };
 
@@ -156,6 +188,8 @@ const UploadStep = ({ onUpload }: { onUpload: (file: File, platform: string, tit
       </div>
 
       <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2">
+        
+        {/* Platform Selection */}
         <div className="rounded-lg bg-white p-4 shadow-sm border border-gray-100">
            <label className="mb-2 block text-xs font-semibold uppercase text-gray-500">Target Platform</label>
            <div className="relative">
@@ -171,7 +205,28 @@ const UploadStep = ({ onUpload }: { onUpload: (file: File, platform: string, tit
              <ChevronDown className="absolute right-3 top-3 text-gray-400" size={16} />
            </div>
         </div>
+
+        {/* Channel Link Input */}
         <div className="rounded-lg bg-white p-4 shadow-sm border border-gray-100">
+           <label className="mb-2 block text-xs font-semibold uppercase text-gray-500">
+             {platform.includes('Instagram') ? 'Instagram Profile URL' : 'YouTube Channel URL'}
+           </label>
+           <div className="relative">
+              <input 
+                type="url"
+                value={channelUrl}
+                onChange={(e) => handleUrlChange(e.target.value)}
+                placeholder={platform.includes('Instagram') ? "https://instagram.com/..." : "https://youtube.com/@..."}
+                className="w-full rounded-md border border-gray-200 bg-gray-50 pl-8 p-2.5 text-sm font-medium text-gray-700 focus:border-pw-orange focus:outline-none transition-colors"
+              />
+              <div className="absolute left-2.5 top-2.5 text-gray-400">
+                <LinkIcon size={16} />
+              </div>
+           </div>
+        </div>
+
+        {/* Video Title */}
+        <div className="rounded-lg bg-white p-4 shadow-sm border border-gray-100 sm:col-span-2">
            <label className="mb-2 block text-xs font-semibold uppercase text-gray-500">Video Title (Optional)</label>
            <input 
              type="text"
@@ -230,10 +285,12 @@ export default function App() {
   const [file, setFile] = useState<File | null>(null);
   const [videoTitle, setVideoTitle] = useState('');
   const [platform, setPlatform] = useState('YouTube');
+  const [channelUrl, setChannelUrl] = useState(''); // New State
   
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [results, setResults] = useState<AnalysisResult | null>(null);
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false); // New State
   const [activeTab, setActiveTab] = useState<'issues' | 'marketing'>('issues');
   const [error, setError] = useState<string | null>(null);
   
@@ -277,6 +334,13 @@ export default function App() {
     setStep('upload');
   };
 
+  // Handle Auth Updates from Settings
+  const handleAuthUpdate = (name: string, key: string) => {
+     localStorage.setItem('pw_proofvision_auth', JSON.stringify({ name, key }));
+     setUserName(name);
+     setApiKey(key);
+  };
+
   // Handle Logout
   const handleLogout = () => {
     localStorage.removeItem('pw_proofvision_auth');
@@ -309,18 +373,19 @@ export default function App() {
   }, [videoUrl]);
 
   // STEP 1: Handle Upload & Preview
-  const handleUpload = async (uploadedFile: File, selectedPlatform: string, title?: string) => {
+  const handleUpload = async (uploadedFile: File, selectedPlatform: string, title?: string, url?: string) => {
     setFile(uploadedFile);
     setPlatform(selectedPlatform);
     setVideoTitle(title || uploadedFile.name);
+    setChannelUrl(url || '');
     setError(null);
     setProcessedVideo(null); 
     setIsAiProcessing(false);
     
     // Create Object URL for playback
     if (videoUrl) URL.revokeObjectURL(videoUrl);
-    const url = URL.createObjectURL(uploadedFile);
-    setVideoUrl(url);
+    const urlObj = URL.createObjectURL(uploadedFile);
+    setVideoUrl(urlObj);
 
     setProcessedVideo({ 
         fileUri: 'pending-upload', 
@@ -340,17 +405,16 @@ export default function App() {
 
     try {
        // Phase 1: Upload to Google (File API)
-       // This waits for the "ACTIVE" state inside the function
        const { uri, duration } = await uploadFileToGemini(file, apiKey, (status) => setAnalysisStatus(status));
        
        // Phase 2: Analyze
-       // Pass duration to enable chunking if necessary
        const data = await runGeminiAnalysis(
          uri,
          videoTitle,
          platform,
          duration,
          apiKey,
+         channelUrl, // Pass the channel URL for context
          (status) => setAnalysisStatus(status)
        );
        
@@ -399,7 +463,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
-      <Header userName={userName} onLogout={handleLogout} />
+      <Header userName={userName} onLogout={handleLogout} onOpenSettings={() => setIsSettingsOpen(true)} />
       
       <main className="relative">
         {error && (
@@ -579,6 +643,14 @@ export default function App() {
           isOpen={isExportOpen} 
           onClose={() => setIsExportOpen(false)} 
           results={results}
+        />
+        
+        <SettingsModal 
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          currentUser={userName}
+          currentKey={apiKey}
+          onSave={handleAuthUpdate}
         />
       </main>
     </div>
