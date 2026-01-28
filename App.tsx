@@ -5,6 +5,7 @@ import { AnalysisProgress } from './components/AnalysisProgress';
 import { IssueCard, MarketingPanel } from './components/DashboardComponents';
 import { ExportModal } from './components/ExportModal';
 import { VideoWorkspace, VideoWorkspaceRef } from './components/VideoWorkspace';
+import { LoginPage } from './components/LoginPage';
 import { 
   UploadCloud, 
   ChevronDown, 
@@ -17,25 +18,58 @@ import {
   AlertTriangle,
   CheckCircle2,
   X,
+  LogOut,
+  User
 } from 'lucide-react';
 
 // --- Header ---
-const Header = () => (
-  <header className="sticky top-0 z-40 w-full border-b border-gray-200 bg-white shadow-sm">
-    <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-      <div className="flex items-center space-x-3">
-        <div className="flex h-8 w-8 items-center justify-center rounded bg-pw-blue text-white font-bold">PW</div>
-        <span className="font-heading text-lg font-bold text-pw-blue">ProofVision</span>
-      </div>
-      <div className="flex items-center space-x-4">
-        <button className="text-gray-500 hover:text-pw-orange" aria-label="Settings"><Settings size={20} /></button>
-        <div className="h-8 w-8 rounded-full bg-gray-200 overflow-hidden">
-           <img src="https://ui-avatars.com/api/?name=Ravi+Editor&background=FF6B35&color=fff" alt="Profile" />
+const Header = ({ userName, onLogout }: { userName: string, onLogout: () => void }) => {
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+
+  return (
+    <header className="sticky top-0 z-40 w-full border-b border-gray-200 bg-white shadow-sm">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center space-x-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded bg-pw-blue text-white font-bold">PW</div>
+          <span className="font-heading text-lg font-bold text-pw-blue">ProofVision</span>
+        </div>
+        <div className="flex items-center space-x-4">
+          <button className="text-gray-500 hover:text-pw-orange" aria-label="Settings"><Settings size={20} /></button>
+          
+          <div className="relative">
+            <button 
+              onClick={() => setShowProfileMenu(!showProfileMenu)}
+              className="flex items-center space-x-2 focus:outline-none"
+            >
+              <div className="h-8 w-8 rounded-full bg-gray-200 overflow-hidden ring-2 ring-transparent hover:ring-pw-orange transition-all">
+                <img 
+                  src={`https://ui-avatars.com/api/?name=${encodeURIComponent(userName)}&background=FF6B35&color=fff`} 
+                  alt="Profile" 
+                />
+              </div>
+            </button>
+            
+            {showProfileMenu && (
+              <div className="absolute right-0 mt-2 w-48 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none animate-in fade-in slide-in-from-top-2 duration-200">
+                <div className="px-4 py-2 border-b border-gray-100">
+                   <p className="text-xs text-gray-500">Signed in as</p>
+                   <p className="text-sm font-bold text-gray-900 truncate">{userName}</p>
+                </div>
+                <button
+                  onClick={onLogout}
+                  className="flex w-full items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 text-left"
+                >
+                  <LogOut size={16} className="mr-2" />
+                  Sign out
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
-  </header>
-);
+    </header>
+  );
+};
 
 // --- Upload Step ---
 const UploadStep = ({ onUpload }: { onUpload: (file: File, platform: string, title?: string) => void }) => {
@@ -186,7 +220,13 @@ const FitItem = ({ label, pass, value }: { label: string; pass: boolean; value: 
 
 // --- Main App Component ---
 export default function App() {
-  const [step, setStep] = useState<AppStep>('upload');
+  const [step, setStep] = useState<AppStep>('login');
+  
+  // Auth State
+  const [apiKey, setApiKey] = useState<string>('');
+  const [userName, setUserName] = useState<string>('');
+
+  // App State
   const [file, setFile] = useState<File | null>(null);
   const [videoTitle, setVideoTitle] = useState('');
   const [platform, setPlatform] = useState('YouTube');
@@ -212,10 +252,47 @@ export default function App() {
     minor: true
   });
 
+  // Check Local Storage on Mount
+  useEffect(() => {
+    const storedAuth = localStorage.getItem('pw_proofvision_auth');
+    if (storedAuth) {
+      try {
+        const { name, key } = JSON.parse(storedAuth);
+        if (name && key) {
+          setUserName(name);
+          setApiKey(key);
+          setStep('upload');
+        }
+      } catch (e) {
+        console.error("Auth parsing failed", e);
+      }
+    }
+  }, []);
+
+  // Handle Login
+  const handleLogin = (name: string, key: string) => {
+    localStorage.setItem('pw_proofvision_auth', JSON.stringify({ name, key }));
+    setUserName(name);
+    setApiKey(key);
+    setStep('upload');
+  };
+
+  // Handle Logout
+  const handleLogout = () => {
+    localStorage.removeItem('pw_proofvision_auth');
+    setUserName('');
+    setApiKey('');
+    setResults(null);
+    setFile(null);
+    if (videoUrl) URL.revokeObjectURL(videoUrl);
+    setVideoUrl(null);
+    setStep('login');
+  };
+
   // Warn on refresh
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (step !== 'upload') {
+      if (step === 'analyzing') {
         e.preventDefault();
         e.returnValue = '';
       }
@@ -256,7 +333,7 @@ export default function App() {
 
   // STEP 2: Trigger AI Analysis (File API Strategy)
   const handleStartAnalysis = async () => {
-    if (!file) return;
+    if (!file || !apiKey) return;
     
     setIsAiProcessing(true);
     setAnalysisStatus("Initializing upload...");
@@ -264,7 +341,7 @@ export default function App() {
     try {
        // Phase 1: Upload to Google (File API)
        // This waits for the "ACTIVE" state inside the function
-       const { uri, duration } = await uploadFileToGemini(file, (status) => setAnalysisStatus(status));
+       const { uri, duration } = await uploadFileToGemini(file, apiKey, (status) => setAnalysisStatus(status));
        
        // Phase 2: Analyze
        // Pass duration to enable chunking if necessary
@@ -273,6 +350,7 @@ export default function App() {
          videoTitle,
          platform,
          duration,
+         apiKey,
          (status) => setAnalysisStatus(status)
        );
        
@@ -315,9 +393,13 @@ export default function App() {
   const majorIssues = results?.issues.filter(i => i.severity === 'major') || [];
   const minorIssues = results?.issues.filter(i => ['minor', 'suggestion'].includes(i.severity)) || [];
 
+  if (step === 'login') {
+    return <LoginPage onLogin={handleLogin} />;
+  }
+
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
-      <Header />
+      <Header userName={userName} onLogout={handleLogout} />
       
       <main className="relative">
         {error && (

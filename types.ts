@@ -47,4 +47,4 @@ export interface ProcessedVideoData {
   state: 'PROCESSING' | 'ACTIVE' | 'FAILED';
 }
 
-export type AppStep = 'upload' | 'analyzing' | 'dashboard';
+export type AppStep = 'login' | 'upload' | 'analyzing' | 'dashboard';

@@ -86,9 +86,9 @@ interface UploadResult {
  */
 export const uploadFileToGemini = async (
   file: File, 
+  apiKey: string,
   onStatusUpdate?: (status: string) => void
 ): Promise<UploadResult> => {
-  const apiKey = process.env.API_KEY;
   if (!apiKey) throw new Error("API Key missing");
   
   const ai = new GoogleGenAI({ apiKey });
@@ -190,9 +190,9 @@ export const runGeminiAnalysis = async (
   title: string,
   platform: string,
   durationStr: string,
+  apiKey: string,
   onStatusUpdate?: (status: string) => void
 ): Promise<AnalysisResult> => {
-  const apiKey = process.env.API_KEY;
   if (!apiKey) throw new Error("API Key missing");
 
   const ai = new GoogleGenAI({ apiKey });
