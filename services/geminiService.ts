@@ -23,7 +23,7 @@ const analysisTool = {
             items: {
               type: Type.OBJECT,
               properties: {
-                timestamp: { type: Type.STRING, description: "MM:SS format" },
+                timestamp: { type: Type.STRING, description: "HH:MM:SS or MM:SS format relative to video start (00:00:00)" },
                 type: { type: Type.STRING, enum: ["spelling", "factual", "clarity", "marketing", "platform"] },
                 severity: { type: Type.STRING, enum: ["critical", "major", "minor", "suggestion"] },
                 description: { type: Type.STRING, description: "Short description of the issue" },
@@ -47,7 +47,7 @@ const analysisTool = {
                 items: {
                   type: Type.OBJECT,
                   properties: {
-                    time: { type: Type.STRING },
+                    time: { type: Type.STRING, description: "HH:MM:SS or MM:SS format" },
                     value: { type: Type.NUMBER },
                     label: { type: Type.STRING }
                   }
@@ -156,6 +156,29 @@ const parseDurationSeconds = (durationStr: string): number => {
   return parseInt(durationStr.replace('s', ''), 10);
 };
 
+// --- Timestamp Helpers ---
+const parseTimestampToSeconds = (timeStr: string): number => {
+  if (!timeStr) return 0;
+  // Handle "1234s" format if raw seconds come back
+  if (timeStr.endsWith('s') && !timeStr.includes(':')) {
+    return parseInt(timeStr.replace('s', ''), 10);
+  }
+  const parts = timeStr.split(':').map(part => parseInt(part, 10));
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return parseInt(timeStr, 10) || 0;
+};
+
+const formatSecondsToTimestamp = (seconds: number): string => {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) {
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  }
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+};
+
 /**
  * Runs analysis on an already uploaded file URI.
  * Implements Chunking Strategy for long videos.
@@ -188,9 +211,9 @@ export const runGeminiAnalysis = async (
     const startTime = i * chunkSeconds;
     const endTime = Math.min((i + 1) * chunkSeconds, durationSeconds);
     
-    // Format MM:SS for prompt
-    const startStr = new Date(startTime * 1000).toISOString().substring(14, 19);
-    const endStr = new Date(endTime * 1000).toISOString().substring(14, 19);
+    // Format HH:MM:SS for prompt (more robust than MM:SS for long videos)
+    const startStr = formatSecondsToTimestamp(startTime);
+    const endStr = formatSecondsToTimestamp(endTime);
 
     if (onStatusUpdate) {
       onStatusUpdate(useChunking 
@@ -207,7 +230,9 @@ export const runGeminiAnalysis = async (
 
     // Prompt optimized for SEGMENTS or FULL video
     const timeInstruction = useChunking 
-      ? `CRITICAL INSTRUCTION: Analyze the video ONLY from timestamp ${startStr} to ${endStr}. This is segment ${i + 1} of ${totalChunks}. Do not summarize the whole video. Focus deeply on this specific time window.`
+      ? `CRITICAL INSTRUCTION: Analyze the video ONLY from timestamp ${startStr} to ${endStr}. This is segment ${i + 1} of ${totalChunks}.
+         IMPORTANT: All reported timestamps MUST be ABSOLUTE timestamps relative to the video start (00:00:00), NOT relative to the segment start. 
+         If you find an issue at 1 minute into this segment (which starts at ${startStr}), the timestamp should be ${formatSecondsToTimestamp(startTime + 60)}.`
       : `CRITICAL INSTRUCTION: Analyze the video from 00:00 to the very end. Do not stop in the middle.`;
 
     const prompt = `
@@ -256,7 +281,8 @@ export const runGeminiAnalysis = async (
         },
       });
 
-      const chunkResult = parseResponse(response, title, platform);
+      // Pass startTime to parseResponse for timestamp correction
+      const chunkResult = parseResponse(response, title, platform, startTime, endTime);
       results.push(chunkResult);
 
     } catch (err) {
@@ -275,7 +301,13 @@ export const runGeminiAnalysis = async (
 };
 
 // --- Helper: Parse Single Response ---
-const parseResponse = (response: any, title: string, platform: string): AnalysisResult => {
+const parseResponse = (
+  response: any, 
+  title: string, 
+  platform: string, 
+  segmentStart: number,
+  segmentEnd: number
+): AnalysisResult => {
   const candidates = response.candidates;
   if (!candidates || candidates.length === 0) {
     throw new Error("No response from AI");
@@ -289,8 +321,45 @@ const parseResponse = (response: any, title: string, platform: string): Analysis
     const fc = functionCallPart.functionCall;
     if (fc.name === "submit_video_analysis") {
       const args = fc.args as unknown as AnalysisResult;
+      
+      // FIX: Apply Timestamp Correction Logic
+      // If AI returns relative timestamps (e.g. 00:05 for a segment starting at 20:00), 
+      // we detect it and offset it.
+      
+      const correctedIssues = (args.issues || []).map(issue => {
+        let seconds = parseTimestampToSeconds(issue.timestamp);
+        
+        // HEURISTIC: If the timestamp is significantly smaller than the segment start
+        // (and it's not the first segment), it's likely relative.
+        if (segmentStart > 0 && seconds < segmentStart) {
+          seconds += segmentStart;
+        }
+        
+        return {
+          ...issue,
+          timestamp: formatSecondsToTimestamp(seconds)
+        };
+      });
+
+      // Fix retention curve timestamps as well if they exist
+      const correctedRetention = args.marketing?.retentionCurve?.map(point => {
+        let seconds = parseTimestampToSeconds(point.time);
+         if (segmentStart > 0 && seconds < segmentStart) {
+          seconds += segmentStart;
+        }
+        return {
+          ...point,
+          time: formatSecondsToTimestamp(seconds)
+        };
+      }) || [];
+
       return {
         ...args,
+        issues: correctedIssues,
+        marketing: {
+          ...args.marketing,
+          retentionCurve: correctedRetention
+        },
         videoTitle: title,
         platform: platform
       };
@@ -312,22 +381,28 @@ const mergeAnalysisResults = (results: AnalysisResult[], duration: string): Anal
   
   // Deduplicate issues by timestamp/description to be safe
   const uniqueIssues = Array.from(new Map(allIssues.map(item => [item.timestamp + item.description, item])).values());
+  
+  // Sort issues by time
+  uniqueIssues.sort((a, b) => parseTimestampToSeconds(a.timestamp) - parseTimestampToSeconds(b.timestamp));
 
   // Average Scores
-  const avgScore = Math.round(results.reduce((acc, r) => acc + (r.score || 0), 0) / results.length);
-  const avgMarketingScore = Math.round(results.reduce((acc, r) => acc + (r.marketing?.overallScore || 0), 0) / results.length);
+  const validScores = results.map(r => r.score).filter(s => typeof s === 'number');
+  const avgScore = Math.round(validScores.reduce((a, b) => a + b, 0) / validScores.length);
+  
+  const validMarketingScores = results.map(r => r.marketing?.overallScore).filter(s => typeof s === 'number');
+  const avgMarketingScore = Math.round(validMarketingScores.reduce((a, b) => a + b, 0) / validMarketingScores.length);
 
   // Combine Retention Curve (Sort by time)
   let combinedCurve = results.flatMap(r => r.marketing?.retentionCurve || []);
-  combinedCurve.sort((a, b) => {
-    const timeA = parseInt(a.time.replace(':', ''));
-    const timeB = parseInt(b.time.replace(':', ''));
-    return timeA - timeB;
-  });
+  combinedCurve.sort((a, b) => parseTimestampToSeconds(a.time) - parseTimestampToSeconds(b.time));
   
+  // Deduplicate curve points by time
+  combinedCurve = Array.from(new Map(combinedCurve.map(item => [item.time, item])).values());
+
   // Limit curve points to prevent UI overcrowding (take every Nth point if too many)
   if (combinedCurve.length > 20) {
-    combinedCurve = combinedCurve.filter((_, i) => i % 2 === 0);
+    const step = Math.ceil(combinedCurve.length / 20);
+    combinedCurve = combinedCurve.filter((_, i) => i % step === 0);
   }
 
   return {
