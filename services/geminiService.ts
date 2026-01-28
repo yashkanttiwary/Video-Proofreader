@@ -92,6 +92,8 @@ export const uploadFileToGemini = async (
   if (!apiKey) throw new Error("API Key missing");
   
   const ai = new GoogleGenAI({ apiKey });
+  // Cast to any to avoid type errors if the SDK definition is incomplete in this version
+  const aiClient = ai as any;
 
   try {
     // 1. Upload
@@ -99,7 +101,7 @@ export const uploadFileToGemini = async (
     
     // Using ai.files.upload
     const mimeType = file.type || "video/mp4";
-    const uploadResponse = await ai.files.upload({
+    const uploadResponse = await aiClient.files.upload({
       file: file,
       config: { mimeType: mimeType }
     });
@@ -123,7 +125,7 @@ export const uploadFileToGemini = async (
     let duration = "";
 
     while (isProcessing) {
-      const fileStatusResponse = await ai.files.get({ name: fileName });
+      const fileStatusResponse = await aiClient.files.get({ name: fileName });
       const fileStatus = fileStatusResponse.file ?? fileStatusResponse;
       
       if (fileStatus.state === 'ACTIVE') {
